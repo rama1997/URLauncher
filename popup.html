@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8" />
+		<title>URLauncher</title>
+		<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet" />
+		<link rel="stylesheet" type="text/css" href="styles.css" />
+	</head>
+	<body>
+		<div class="popup-container">
+			<div class="header">
+				<img src="icons/main_128_light.png" alt="Extension Icon" class="main-icon light-icon" />
+				<img src="icons/main_128_dark.png" alt="Extension Icon" class="main-icon dark-icon" />
+				<h1>URLauncher</h1>
+			</div>
+
+			<div id="content">
+				<div id="scheduleContent" class="tabcontent active">
+					<h2>Schedule a URL</h2>
+					<div class="input-container">
+						<input type="text" id="titleInput" placeholder="Enter title" />
+						<input type="url" id="urlInput" placeholder="Enter URL" />
+						<input type="datetime-local" id="timeInput" />
+						<select id="frequencyInput" class="styled-select">
+							<option value="once">Once</option>
+							<option value="1min">Every minute</option>
+							<option value="5min">Every 5 minutes</option>
+							<option value="10min">Every 10 minutes</option>
+							<option value="15min">Every 15 minutes</option>
+							<option value="30min">Every 30 minutes</option>
+							<option value="hourly">Every hour</option>
+							<option value="daily">Every day</option>
+							<option value="weekly">Every week</option>
+							<option value="biweekly">Every two weeks</option>
+							<option value="monthly">Every month</option>
+							<option value="yearly">Every year</option>
+						</select>
+					</div>
+					<button id="scheduleButton">Schedule</button>
+				</div>
+
+				<div id="upcomingContent" class="tabcontent">
+					<div class="header-container">
+						<h2>Scheduled URLs</h2>
+						<div class="sort-container">
+							<button id="sortButton" title="Sort options"><span class="sort-icon">&#x25BE;</span> Sort</button>
+							<div id="sortDropdown" class="dropdown-content">
+								<a href="#" data-sort="title" data-order="asc">Title (A-Z)</a>
+								<a href="#" data-sort="title" data-order="desc">Title (Z-A)</a>
+								<a href="#" data-sort="time" data-order="asc">Next (Earliest)</a>
+								<a href="#" data-sort="time" data-order="desc">Next (Latest)</a>
+							</div>
+						</div>
+					</div>
+					<div id="scheduledList"></div>
+				</div>
+				<div id="settingsContent" class="tabcontent">
+					<h2>Settings</h2>
+
+					<div class="setting-item">
+						<span>Dark Mode</span>
+						<button id="darkModeToggle">Toggle Dark Mode</button>
+					</div>
+
+					<div class="setting-item">
+						<span>Support the Developer</span>
+						<a href="https://buymeacoffee.com/rama1239" id="buyMeCoffeeLink" target="_blank" rel="noopener noreferrer">Buy Me a Coffee</a>
+					</div>
+
+					<div class="setting-item">
+						<span>Feedback</span>
+						<div class="feedback-container">
+							<form id="feedbackForm">
+								<textarea id="feedbackText" placeholder="Enter your feedback here..." rows="4"></textarea>
+								<button type="submit" id="submitFeedback">Submit Feedback</button>
+							</form>
+							<div id="feedbackMessage"></div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<div class="tab">
+				<div id="scheduleTab" class="tab-item">
+					<img src="icons/clock_light.png" alt="Schedule" class="tab-icon light-icon" />
+					<img src="icons/clock_dark.png" alt="Schedule" class="tab-icon dark-icon" />
+					<span>Schedule</span>
+				</div>
+				<div id="viewTab" class="tab-item">
+					<img src="icons/calendar_light.png" alt="View Scheduled" class="tab-icon light-icon" />
+					<img src="icons/calendar_dark.png" alt="View Scheduled" class="tab-icon dark-icon" />
+					<span>Upcoming</span>
+				</div>
+				<div id="settingsTab" class="tab-item">
+					<img src="icons/setting_light.png" alt="Settings" class="tab-icon light-icon" />
+					<img src="icons/setting_dark.png" alt="Settings" class="tab-icon dark-icon" />
+					<span>Settings</span>
+				</div>
+			</div>
+
+			<div id="customAlert" style="display: none">
+				<div id="alertContent"></div>
+				<button id="alertOk">OK</button>
+			</div>
+
+			<script type="module" src="popup.js"></script>
+		</div>
+	</body>
+</html>

@@ -1,0 +1,23 @@
+{
+	"manifest_version": 3,
+	"name": "URLauncher",
+	"version": "1.0.0",
+	"description": "Schedule URLs to open automatically at specific times and frequencies",
+	"permissions": ["alarms", "storage", "tabs"],
+	"background": {
+		"service_worker": "background.js"
+	},
+	"action": {
+		"default_popup": "popup.html",
+		"default_icon": {
+			"16": "icons/main_16_light.png",
+			"48": "icons/main_48_light.png",
+			"128": "icons/main_128_light.png"
+		}
+	},
+	"icons": {
+		"16": "icons/main_16_light.png",
+		"48": "icons/main_48_light.png",
+		"128": "icons/main_128_light.png"
+	}
+}
