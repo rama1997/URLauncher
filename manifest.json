@@ -3,7 +3,7 @@
 	"name": "URLauncher",
 	"version": "1.0.0",
 	"description": "Schedule URLs to open automatically at specific times and frequencies",
-	"permissions": ["alarms", "storage", "tabs"],
+	"permissions": ["alarms", "storage"],
 	"background": {
 		"service_worker": "background.js"
 	},
