@@ -3,214 +3,232 @@ let state = {
 	alarms: [],
 };
 
-// Locking mechanism
-let isLocked = false;
-let lockQueue = [];
-
-// Function to acquire the lock
-function acquireLock(callback) {
-	if (!isLocked) {
-		isLocked = true;
-		callback();
-	} else {
-		lockQueue.push(callback);
-	}
-}
-
-// Function to release the lock
-function releaseLock() {
-	isLocked = false;
-	if (lockQueue.length > 0) {
-		const nextCallback = lockQueue.shift();
-		acquireLock(nextCallback);
-	}
-}
-
 // Listen for extension installation or update
 chrome.runtime.onInstalled.addListener(() => {
-	loadAlarmRecord();
+	loadAlarmRecord().catch((error) => {
+		console.error("Error during installation:", error);
+	});
 });
 
 // listener for when Chrome starts up
 chrome.runtime.onStartup.addListener(() => {
-	checkAndReschedulePassedAlarms();
+	checkAndReschedulePassedAlarms().catch((error) => {
+		console.error("Error during startup:", error);
+	});
 });
 
 // Handle alarms
 chrome.alarms.onAlarm.addListener((alarm) => {
-	handleAlarm(alarm);
+	handleAlarm(alarm).catch((error) => {
+		console.error("Error in alarm listener:", error);
+	});
 });
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	switch (request.action) {
 		case "getRecord":
-			loadAlarmRecord(() => {
-				sendResponse(state);
-			});
+			loadAlarmRecord()
+				.then((state) => sendResponse(state))
+				.catch(() => sendResponse({ state }));
 			break;
 		case "scheduleURL":
-			createAlarm(request.alarm);
-			sendResponse({ success: true });
+			createAlarm(request.alarm)
+				.then(() => sendResponse({ success: true }))
+				.catch(() => sendResponse({ success: false }));
 			break;
 		case "deleteAlarm":
-			deleteAlarm(request.alarm);
-			sendResponse({ success: true });
+			deleteAlarm(request.alarm)
+				.then(() => sendResponse({ success: true }))
+				.catch(() => sendResponse({ success: false }));
 			break;
 		case "editAlarm":
-			editAlarm(request.alarm);
-			sendResponse({ success: true });
+			editAlarm(request.alarm)
+				.then(() => sendResponse({ success: true }))
+				.catch(() => sendResponse({ success: false }));
 			break;
 		case "toggleAlarm":
-			toggleAlarm(request.id);
-			sendResponse({ success: true });
+			toggleAlarm(request.id)
+				.then(() => sendResponse({ success: true }))
+				.catch(() => sendResponse({ success: false }));
 			break;
 	}
 	return true;
 });
 
-function createAlarm(alarm) {
-	acquireLock(() => {
-		// Create Alarm in Chrome
-		chrome.alarms.clear(alarm.id, () => {
+// Helper function to promisify chrome.alarms.clear
+function clearChromeAlarm(alarmId) {
+	return new Promise((resolve, reject) => {
+		chrome.alarms.clear(alarmId, () => {
 			if (chrome.runtime.lastError) {
-				lastError = chrome.runtime.lastError;
+				reject(chrome.runtime.lastError);
 			} else {
-				const alarmTime = new Date(alarm.time).getTime();
-				chrome.alarms.create(alarm.id, { when: alarmTime }, () => {
-					if (chrome.runtime.lastError) {
-						lastError = chrome.runtime.lastError;
-					} else {
-						// Create alarm in records
-						chrome.storage.local.get(["alarms"], (result) => {
-							if (chrome.runtime.lastError) {
-								lastError = chrome.runtime.lastError;
-							} else {
-								const alarms = result.alarms || [];
-								const index = alarms.findIndex((a) => a.id === alarm.id);
-								if (index !== -1) {
-									alarms[index] = alarm;
-								} else {
-									alarms.push(alarm);
-								}
-								chrome.storage.local.set({ alarms }, () => {
-									refreshPopup();
-								});
-							}
-						});
-					}
-				});
+				resolve();
 			}
 		});
-		releaseLock();
 	});
 }
 
-function deleteAlarm(alarmToBeDeleted) {
-	acquireLock(() => {
-		// Delete alarm from Chrome
-		chrome.alarms.clear(alarmToBeDeleted.id, () => {
+// Helper function to promisify chrome.alarms.create
+function createChromeAlarm(alarmId, alarmInfo) {
+	return new Promise((resolve, reject) => {
+		chrome.alarms.create(alarmId, alarmInfo, () => {
 			if (chrome.runtime.lastError) {
-				lastError = chrome.runtime.lastError;
+				reject(chrome.runtime.lastError);
+			} else {
+				resolve();
 			}
-
-			// Delete alarm from records
-			chrome.storage.local.get(["alarms"], (result) => {
-				if (chrome.runtime.lastError) {
-					lastError = chrome.runtime.lastError;
-				} else {
-					const alarms = result.alarms || [];
-					const updatedAlarms = alarms.filter((alarm) => alarm.id !== alarmToBeDeleted.id);
-					chrome.storage.local.set({ alarms: updatedAlarms }, () => {
-						if (chrome.runtime.lastError) {
-							lastError = chrome.runtime.lastError;
-						} else {
-							refreshPopup();
-						}
-					});
-				}
-			});
-			releaseLock();
 		});
 	});
 }
 
-function editAlarm(updatedAlarm) {
-	chrome.storage.local.get(["alarms"], (result) => {
-		if (chrome.runtime.lastError) {
-			lastError = chrome.runtime.lastError;
+// Helper function to promisify chrome.storage.local.get
+function getChromeStorageData(key) {
+	return new Promise((resolve, reject) => {
+		chrome.storage.local.get(key, (result) => {
+			if (chrome.runtime.lastError) {
+				reject(chrome.runtime.lastError);
+			} else {
+				resolve(result);
+			}
+		});
+	});
+}
+
+// Helper function to promisify chrome.storage.local.set
+function setChromeStorageData(data) {
+	return new Promise((resolve, reject) => {
+		chrome.storage.local.set(data, () => {
+			if (chrome.runtime.lastError) {
+				reject(chrome.runtime.lastError);
+			} else {
+				resolve();
+			}
+		});
+	});
+}
+
+async function createAlarm(alarm) {
+	try {
+		// Clear any existing alarm with the same ID
+		await clearChromeAlarm(alarm.id);
+
+		// Create the new alarm in Chrome
+		const alarmTime = new Date(alarm.time).getTime();
+		await createChromeAlarm(alarm.id, { when: alarmTime });
+
+		// Update the alarm in storage
+		const result = await getChromeStorageData(["alarms"]);
+		const alarms = result.alarms || [];
+
+		const index = alarms.findIndex((a) => a.id === alarm.id);
+		if (index !== -1) {
+			alarms[index] = alarm;
 		} else {
-			const alarms = result.alarms || [];
-			const index = alarms.findIndex((alarm) => alarm.id === updatedAlarm.id);
-			if (index !== -1) {
-				const oldAlarm = alarms[index];
-				deleteAlarm(oldAlarm);
-				alarms[index] = updatedAlarm;
-				createAlarm(updatedAlarm);
+			alarms.push(alarm);
+		}
+
+		await setChromeStorageData({ alarms });
+
+		// Refresh the popup
+		refreshPopup();
+	} catch (error) {
+		console.error("Error creating alarm", error);
+	}
+}
+
+async function deleteAlarm(alarmToBeDeleted) {
+	try {
+		// Delete alarm from Chrome
+		await clearChromeAlarm(alarmToBeDeleted.id);
+
+		// Delete alarm from storage
+		const result = await getChromeStorageData(["alarms"]);
+		const alarms = result.alarms || [];
+
+		const updatedAlarms = alarms.filter((alarm) => alarm.id !== alarmToBeDeleted.id);
+
+		await setChromeStorageData({ alarms: updatedAlarms });
+
+		// Refresh the popup
+		refreshPopup();
+	} catch (error) {
+		console.error("Error deleting alarm:", error);
+	}
+}
+
+async function editAlarm(updatedAlarm) {
+	try {
+		const result = await getChromeStorageData(["alarms"]);
+		const alarms = result.alarms || [];
+
+		const index = alarms.findIndex((alarm) => alarm.id === updatedAlarm.id);
+		if (index !== -1) {
+			const oldAlarm = alarms[index];
+			await deleteAlarm(oldAlarm);
+			alarms[index] = updatedAlarm;
+			await createAlarm(updatedAlarm);
+		} else {
+			throw new Error("Alarm not found for editing");
+		}
+	} catch (error) {
+		console.error("Error editing alarm:", error);
+	}
+}
+
+async function handleAlarm(triggeredAlarm) {
+	try {
+		const result = await getChromeStorageData(["alarms"]);
+		const alarms = result.alarms || [];
+		const alarm = alarms.find((a) => a.id === triggeredAlarm.name);
+
+		if (alarm) {
+			if (alarm.isActive) {
+				createChromeTabWithURL(alarm.url);
+
+				if (alarm.frequency === "once") {
+					await deleteAlarm(alarm);
+				} else {
+					await updateAlarm(alarm);
+				}
+			} else {
+				if (alarm.frequency !== "once") {
+					await updateAlarm(alarm);
+				}
 			}
 		}
-	});
+
+		refreshPopup();
+	} catch (error) {
+		console.error("Error handling alarm:", error);
+	}
 }
 
-function handleAlarm(triggeredAlarm) {
-	acquireLock(() => {
-		chrome.storage.local.get(["alarms"], (result) => {
-			if (chrome.runtime.lastError) {
-				lastError = chrome.runtime.lastError;
+async function toggleAlarm(id) {
+	try {
+		const result = await getChromeStorageData(["alarms"]);
+		const alarms = result.alarms || [];
+		const alarm = alarms.find((alarm) => alarm.id === id);
+
+		if (alarm) {
+			alarm.isActive = !alarm.isActive;
+			await setChromeStorageData({ alarms });
+
+			if (alarm.isActive) {
+				await updateAlarm(alarm);
 			} else {
-				const alarms = result.alarms || [];
-				const alarm = alarms.find((a) => a.id === triggeredAlarm.name);
-				if (alarm) {
-					if (alarm.isActive) {
-						openURL(alarm.url);
-						if (alarm.frequency === "once") {
-							deleteAlarm(alarm);
-						} else {
-							updateAlarm(alarm);
-						}
-					} else {
-						if (alarm.frequency !== "once") {
-							updateAlarm(alarm);
-						}
-					}
-				}
+				refreshPopup();
 			}
-			refreshPopup();
-			releaseLock();
-		});
-	});
+		} else {
+			throw new Error("Alarm not found for toggling");
+		}
+	} catch (error) {
+		console.error("Error toggling alarm:", error);
+	}
 }
 
-function toggleAlarm(id) {
-	acquireLock(() => {
-		chrome.storage.local.get(["alarms"], (result) => {
-			if (chrome.runtime.lastError) {
-				lastError = chrome.runtime.lastError;
-			} else {
-				const alarms = result.alarms || [];
-				const alarm = alarms.find((alarm) => alarm.id === id);
-				if (alarm) {
-					alarm.isActive = !alarm.isActive;
-					chrome.storage.local.set({ alarms }, () => {
-						if (chrome.runtime.lastError) {
-							lastError = chrome.runtime.lastError;
-						} else {
-							if (alarm.isActive) {
-								updateAlarm(alarm);
-							} else {
-								refreshPopup();
-							}
-						}
-					});
-				}
-			}
-			releaseLock();
-		});
-	});
-}
-
-function updateAlarm(alarm) {
-	acquireLock(() => {
+async function updateAlarm(alarm) {
+	try {
 		const now = new Date();
 		const alarmTime = new Date(alarm.time);
 
@@ -221,12 +239,13 @@ function updateAlarm(alarm) {
 
 		alarm.time = newTime.toISOString();
 
-		deleteAlarm(alarm);
-		createAlarm(alarm);
+		await deleteAlarm(alarm);
+		await createAlarm(alarm);
 
 		refreshPopup();
-		releaseLock();
-	});
+	} catch (error) {
+		console.error("Error updating alarm:", error);
+	}
 }
 
 function isScheduledTimePassed(scheduledTime) {
@@ -236,30 +255,33 @@ function isScheduledTimePassed(scheduledTime) {
 }
 
 // Reschedule alarms that have passed
-function checkAndReschedulePassedAlarms() {
-	chrome.storage.local.get(["alarms"], (result) => {
-		if (chrome.runtime.lastError) {
-			lastError = chrome.runtime.lastError;
-		} else {
-			const alarms = result.alarms || [];
-			alarms.forEach((alarm) => {
-				if (isScheduledTimePassed(alarm.time)) {
-					handleAlarm(alarm);
-				}
-			});
-		}
-	});
-}
+async function checkAndReschedulePassedAlarms() {
+	try {
+		const result = await getChromeStorageData(["alarms"]);
+		const alarms = result.alarms || [];
 
-function loadAlarmRecord(callback) {
-	chrome.storage.local.get(["alarms"], (result) => {
-		if (chrome.runtime.lastError) {
-			lastError = chrome.runtime.lastError;
-		} else {
-			state.alarms = result.alarms || [];
-		}
-		if (callback) callback();
-	});
+		// Use Promise.all to handle multiple alarms concurrently
+		await Promise.all(
+			alarms.map(async (alarm) => {
+				if (isScheduledTimePassed(alarm.time)) {
+					await handleAlarm({ name: alarm.id }); // Simulate alarm trigger
+				}
+			}),
+		);
+	} catch (error) {
+		console.error("Error checking and rescheduling alarms:", error);
+		throw error;
+	}
+}
+async function loadAlarmRecord() {
+	try {
+		const result = await getChromeStorageData(["alarms"]);
+		state.alarms = result.alarms || [];
+		console.log(state.alarms);
+		return state;
+	} catch (error) {
+		console.error("Error loading alarm record:", error);
+	}
 }
 
 function getNextAlarmTime(currentTime, frequency) {
@@ -294,18 +316,31 @@ function getNextAlarmTime(currentTime, frequency) {
 	}
 }
 
-function openURL(url) {
-	chrome.tabs.create({ url: url }, (tab) => {
-		if (chrome.runtime.lastError) {
-			lastError = chrome.runtime.lastError;
-		}
+function createChromeTabWithURL(url) {
+	return new Promise((resolve, reject) => {
+		chrome.tabs.create({ url }, (tab) => {
+			if (chrome.runtime.lastError) {
+				reject(chrome.runtime.lastError);
+			} else {
+				resolve(tab);
+			}
+		});
 	});
 }
 
-function refreshPopup() {
-	chrome.runtime.sendMessage({ action: "refreshPopup" }, (response) => {
-		if (chrome.runtime.lastError) {
-			lastError = chrome.runtime.lastError;
-		}
-	});
+// Utility function for refreshing popup
+async function refreshPopup() {
+	try {
+		await new Promise((resolve, reject) => {
+			chrome.runtime.sendMessage({ action: "refreshPopup" }, (response) => {
+				if (chrome.runtime.lastError) {
+					reject(chrome.runtime.lastError);
+				} else {
+					resolve(response);
+				}
+			});
+		});
+	} catch (error) {
+		console.error("Error refreshing popup:", error);
+	}
 }
