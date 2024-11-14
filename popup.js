@@ -277,7 +277,7 @@ function saveEdit(event) {
 			isActive: true, // Assume it's active when edited
 		};
 
-		chrome.runtime.sendMessage({ action: "editAlarm", alarm: updatedAlarm }, (response) => {
+		chrome.runtime.sendMessage({ action: "editURL", alarm: updatedAlarm }, (response) => {
 			if (response && response.success) {
 				UI.showAlert("URL edited successfully!");
 				loadState();
@@ -302,7 +302,7 @@ function cancelEdit(event) {
 
 function toggleAlarmState(event) {
 	const id = event.target.getAttribute("data-id");
-	chrome.runtime.sendMessage({ action: "toggleAlarm", id: id }, (response) => {
+	chrome.runtime.sendMessage({ action: "toggleURL", id: id }, (response) => {
 		if (response && response.success) {
 			loadState();
 		} else {
@@ -316,7 +316,7 @@ function deleteScheduledURL(event) {
 	const alarmToDelete = state.alarms.find((alarm) => alarm.id === alarmId);
 
 	if (alarmToDelete) {
-		chrome.runtime.sendMessage({ action: "deleteAlarm", alarm: alarmToDelete }, (response) => {
+		chrome.runtime.sendMessage({ action: "deleteURL", alarm: alarmToDelete }, (response) => {
 			if (response && response.success) {
 				UI.showAlert("URL deleted successfully!");
 				loadState();

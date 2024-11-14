@@ -3,23 +3,25 @@ let state = {
 	alarms: [],
 };
 
-// Listen for extension installation or update
+// Queue management
+let operationQueue = [];
+let isProcessing = false;
+
+// Chrome event listeners
 chrome.runtime.onInstalled.addListener(() => {
 	loadAlarmRecord().catch((error) => {
 		console.error("Error during installation:", error);
 	});
 });
 
-// listener for when Chrome starts up
 chrome.runtime.onStartup.addListener(() => {
 	checkAndReschedulePassedAlarms().catch((error) => {
 		console.error("Error during startup:", error);
 	});
 });
 
-// Handle alarms
 chrome.alarms.onAlarm.addListener((alarm) => {
-	handleAlarm(alarm).catch((error) => {
+	enqueueOperation(() => handleAlarm(alarm)).catch((error) => {
 		console.error("Error in alarm listener:", error);
 	});
 });
@@ -33,22 +35,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 				.catch(() => sendResponse({ state }));
 			break;
 		case "scheduleURL":
-			createAlarm(request.alarm)
+			scheduleURL(request.alarm)
 				.then(() => sendResponse({ success: true }))
 				.catch(() => sendResponse({ success: false }));
 			break;
-		case "deleteAlarm":
-			deleteAlarm(request.alarm)
+		case "deleteURL":
+			deleteURL(request.alarm)
 				.then(() => sendResponse({ success: true }))
 				.catch(() => sendResponse({ success: false }));
 			break;
-		case "editAlarm":
-			editAlarm(request.alarm)
+		case "editURL":
+			editURL(request.alarm)
 				.then(() => sendResponse({ success: true }))
 				.catch(() => sendResponse({ success: false }));
 			break;
-		case "toggleAlarm":
-			toggleAlarm(request.id)
+		case "toggleURL":
+			toggleURL(request.id)
 				.then(() => sendResponse({ success: true }))
 				.catch(() => sendResponse({ success: false }));
 			break;
@@ -56,8 +58,45 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	return true;
 });
 
+// Helper function to add operation to queue and process
+async function enqueueOperation(operation) {
+	return new Promise((resolve, reject) => {
+		operationQueue.push({
+			operation,
+			resolve,
+			reject,
+		});
+		processQueue();
+	});
+}
+
+// Process queue
+async function processQueue() {
+	if (isProcessing || operationQueue.length === 0) {
+		return;
+	}
+
+	isProcessing = true;
+
+	while (operationQueue.length > 0) {
+		const { operation, resolve, reject } = operationQueue[0];
+
+		try {
+			const result = await operation();
+			resolve(result);
+		} catch (error) {
+			reject(error);
+		} finally {
+			operationQueue.shift(); // Remove the processed operation
+		}
+	}
+
+	isProcessing = false;
+}
+
 // Helper function to promisify chrome.alarms.clear
 function clearChromeAlarm(alarmId) {
+	console.log("Clearing alarm:", alarmId);
 	return new Promise((resolve, reject) => {
 		chrome.alarms.clear(alarmId, () => {
 			if (chrome.runtime.lastError) {
@@ -71,6 +110,7 @@ function clearChromeAlarm(alarmId) {
 
 // Helper function to promisify chrome.alarms.create
 function createChromeAlarm(alarmId, alarmInfo) {
+	console.log("Creating alarm:", alarmId);
 	return new Promise((resolve, reject) => {
 		chrome.alarms.create(alarmId, alarmInfo, () => {
 			if (chrome.runtime.lastError) {
@@ -108,66 +148,72 @@ function setChromeStorageData(data) {
 	});
 }
 
-async function createAlarm(alarm) {
+// Core operations
+async function updateStorageAlarms(alarms) {
+	await setChromeStorageData({ alarms });
+}
+
+async function createAlarmCore(url) {
+	await clearChromeAlarm(url.id);
+	const alarmTime = new Date(url.time).getTime();
+	await createChromeAlarm(url.id, { when: alarmTime });
+}
+
+async function deleteAlarmCore(url) {
+	await clearChromeAlarm(url.id);
+}
+
+async function scheduleURL(url) {
+	console.log("Create Alarm");
 	try {
-		// Clear any existing alarm with the same ID
-		await clearChromeAlarm(alarm.id);
+		await createAlarmCore(url);
 
-		// Create the new alarm in Chrome
-		const alarmTime = new Date(alarm.time).getTime();
-		await createChromeAlarm(alarm.id, { when: alarmTime });
-
-		// Update the alarm in storage
 		const result = await getChromeStorageData(["alarms"]);
 		const alarms = result.alarms || [];
 
-		const index = alarms.findIndex((a) => a.id === alarm.id);
+		const index = alarms.findIndex((a) => a.id === url.id);
 		if (index !== -1) {
-			alarms[index] = alarm;
+			alarms[index] = url;
 		} else {
-			alarms.push(alarm);
+			alarms.push(url);
 		}
 
-		await setChromeStorageData({ alarms });
-
-		// Refresh the popup
+		await updateStorageAlarms(alarms);
 		refreshPopup();
 	} catch (error) {
 		console.error("Error creating alarm", error);
 	}
 }
 
-async function deleteAlarm(alarmToBeDeleted) {
+async function deleteURL(URLToBeDeleted) {
+	console.log("Delete Alarm");
 	try {
 		// Delete alarm from Chrome
-		await clearChromeAlarm(alarmToBeDeleted.id);
+		await deleteAlarmCore(URLToBeDeleted);
 
 		// Delete alarm from storage
 		const result = await getChromeStorageData(["alarms"]);
 		const alarms = result.alarms || [];
+		const updatedAlarms = alarms.filter((a) => a.id !== URLToBeDeleted.id);
+		await updateStorageAlarms(updatedAlarms);
 
-		const updatedAlarms = alarms.filter((alarm) => alarm.id !== alarmToBeDeleted.id);
-
-		await setChromeStorageData({ alarms: updatedAlarms });
-
-		// Refresh the popup
 		refreshPopup();
 	} catch (error) {
 		console.error("Error deleting alarm:", error);
 	}
 }
 
-async function editAlarm(updatedAlarm) {
+async function editURL(updatedURL) {
 	try {
 		const result = await getChromeStorageData(["alarms"]);
 		const alarms = result.alarms || [];
 
-		const index = alarms.findIndex((alarm) => alarm.id === updatedAlarm.id);
+		const index = alarms.findIndex((alarm) => alarm.id === updatedURL.id);
 		if (index !== -1) {
 			const oldAlarm = alarms[index];
-			await deleteAlarm(oldAlarm);
-			alarms[index] = updatedAlarm;
-			await createAlarm(updatedAlarm);
+			await deleteURL(oldAlarm);
+			alarms[index] = updatedURL;
+			await scheduleURL(updatedURL);
 		} else {
 			throw new Error("Alarm not found for editing");
 		}
@@ -177,6 +223,7 @@ async function editAlarm(updatedAlarm) {
 }
 
 async function handleAlarm(triggeredAlarm) {
+	console.log("Handle Alarm");
 	try {
 		const result = await getChromeStorageData(["alarms"]);
 		const alarms = result.alarms || [];
@@ -184,16 +231,46 @@ async function handleAlarm(triggeredAlarm) {
 
 		if (alarm) {
 			if (alarm.isActive) {
-				createChromeTabWithURL(alarm.url);
+				await createChromeTabWithURL(alarm.url);
 
 				if (alarm.frequency === "once") {
-					await deleteAlarm(alarm);
+					const updatedAlarms = alarms.filter((a) => a.id !== alarm.id);
+					await deleteAlarmCore(alarm);
+					await updateStorageAlarms(updatedAlarms);
 				} else {
-					await updateAlarm(alarm);
+					const now = new Date();
+					let newTime = new Date(alarm.time);
+					while (newTime <= now) {
+						newTime = getNextAlarmTime(newTime, alarm.frequency);
+					}
+
+					const updatedAlarm = { ...alarm, time: newTime.toISOString() };
+					await deleteAlarmCore(alarm);
+					await createAlarmCore(updatedAlarm);
+
+					const index = alarms.findIndex((a) => a.id === alarm.id);
+					if (index !== -1) {
+						alarms[index] = updatedAlarm;
+						await updateStorageAlarms(alarms);
+					}
 				}
 			} else {
 				if (alarm.frequency !== "once") {
-					await updateAlarm(alarm);
+					const now = new Date();
+					let newTime = new Date(alarm.time);
+					while (newTime <= now) {
+						newTime = getNextAlarmTime(newTime, alarm.frequency);
+					}
+
+					const updatedAlarm = { ...alarm, time: newTime.toISOString() };
+					await deleteAlarmCore(alarm);
+					await createAlarmCore(updatedAlarm);
+
+					const index = alarms.findIndex((a) => a.id === alarm.id);
+					if (index !== -1) {
+						alarms[index] = updatedAlarm;
+						await updateStorageAlarms(alarms);
+					}
 				}
 			}
 		}
@@ -204,47 +281,95 @@ async function handleAlarm(triggeredAlarm) {
 	}
 }
 
-async function toggleAlarm(id) {
+async function toggleURL(id) {
 	try {
 		const result = await getChromeStorageData(["alarms"]);
 		const alarms = result.alarms || [];
-		const alarm = alarms.find((alarm) => alarm.id === id);
+		const alarm = alarms.find((a) => a.id === id);
 
 		if (alarm) {
 			alarm.isActive = !alarm.isActive;
-			await setChromeStorageData({ alarms });
+			await updateStorageAlarms(alarms);
 
 			if (alarm.isActive) {
-				await updateAlarm(alarm);
+				const now = new Date();
+				let newTime = new Date(alarm.time);
+				while (newTime <= now) {
+					newTime = getNextAlarmTime(newTime, alarm.frequency);
+				}
+
+				const updatedAlarm = { ...alarm, time: newTime.toISOString() };
+				await createAlarmCore(updatedAlarm);
+
+				const index = alarms.findIndex((a) => a.id === alarm.id);
+				if (index !== -1) {
+					alarms[index] = updatedAlarm;
+					await updateStorageAlarms(alarms);
+				}
 			} else {
-				refreshPopup();
+				await deleteAlarmCore(alarm);
 			}
-		} else {
-			throw new Error("Alarm not found for toggling");
+			refreshPopup();
 		}
 	} catch (error) {
 		console.error("Error toggling alarm:", error);
 	}
 }
 
-async function updateAlarm(alarm) {
+async function updateURL(url) {
 	try {
 		const now = new Date();
-		const alarmTime = new Date(alarm.time);
+		const alarmTime = new Date(url.time);
 
 		let newTime = new Date(alarmTime);
 		while (newTime <= now) {
-			newTime = getNextAlarmTime(newTime, alarm.frequency);
+			newTime = getNextAlarmTime(newTime, url.frequency);
 		}
 
-		alarm.time = newTime.toISOString();
+		const updatedURL = { ...url, time: newTime.toISOString() };
+		await deleteAlarmCore(url);
+		await createAlarmCore(updatedURL);
 
-		await deleteAlarm(alarm);
-		await createAlarm(alarm);
+		const result = await getChromeStorageData(["alarms"]);
+		const alarms = result.alarms || [];
+		const index = alarms.findIndex((a) => a.id === url.id);
+		if (index !== -1) {
+			alarms[index] = updatedURL;
+			await updateStorageAlarms(alarms);
+		}
 
 		refreshPopup();
 	} catch (error) {
 		console.error("Error updating alarm:", error);
+	}
+}
+
+// Reschedule alarms that have passed
+async function checkAndReschedulePassedAlarms() {
+	try {
+		const result = await getChromeStorageData(["alarms"]);
+		const alarms = result.alarms || [];
+
+		for (const alarm of alarms) {
+			if (isScheduledTimePassed(alarm.time)) {
+				await enqueueOperation(() => handleAlarm({ name: alarm.id }));
+			}
+		}
+	} catch (error) {
+		console.error("Error checking and rescheduling alarms:", error);
+		throw error;
+	}
+}
+
+async function loadAlarmRecord() {
+	try {
+		const result = await getChromeStorageData(["alarms"]);
+		state.alarms = result.alarms || [];
+		console.log(state.alarms);
+		return state;
+	} catch (error) {
+		console.error("Error loading alarm record:", error);
+		throw error;
 	}
 }
 
@@ -254,41 +379,11 @@ function isScheduledTimePassed(scheduledTime) {
 	return scheduled <= now;
 }
 
-// Reschedule alarms that have passed
-async function checkAndReschedulePassedAlarms() {
-	try {
-		const result = await getChromeStorageData(["alarms"]);
-		const alarms = result.alarms || [];
-
-		// Use Promise.all to handle multiple alarms concurrently
-		await Promise.all(
-			alarms.map(async (alarm) => {
-				if (isScheduledTimePassed(alarm.time)) {
-					await handleAlarm({ name: alarm.id }); // Simulate alarm trigger
-				}
-			}),
-		);
-	} catch (error) {
-		console.error("Error checking and rescheduling alarms:", error);
-		throw error;
-	}
-}
-async function loadAlarmRecord() {
-	try {
-		const result = await getChromeStorageData(["alarms"]);
-		state.alarms = result.alarms || [];
-		console.log(state.alarms);
-		return state;
-	} catch (error) {
-		console.error("Error loading alarm record:", error);
-	}
-}
-
 function getNextAlarmTime(currentTime, frequency) {
 	const next = new Date(currentTime);
 	switch (frequency) {
 		case "once":
-			return new Date(next.getTime() + 1000); //Update by 1 second as precaution to prevent infinite loops
+			return new Date(next.getTime() + 60000); //Update by 1 min as precaution to prevent infinite loops
 		case "1min":
 			return new Date(next.getTime() + 60000);
 		case "5min":
@@ -328,7 +423,7 @@ function createChromeTabWithURL(url) {
 	});
 }
 
-// Utility function for refreshing popup
+// Utility function for refreshing popup. Refresh attempts is generally going to throw error due to popup not being open for refresh. Can just ignore as non critical
 async function refreshPopup() {
 	try {
 		await new Promise((resolve, reject) => {
@@ -341,6 +436,6 @@ async function refreshPopup() {
 			});
 		});
 	} catch (error) {
-		console.error("Error refreshing popup:", error);
+		return;
 	}
 }
