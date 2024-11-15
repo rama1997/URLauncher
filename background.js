@@ -255,22 +255,20 @@ async function handleAlarm(triggeredAlarm) {
 					}
 				}
 			} else {
-				if (alarm.frequency !== "once") {
-					const now = new Date();
-					let newTime = new Date(alarm.time);
-					while (newTime <= now) {
-						newTime = getNextAlarmTime(newTime, alarm.frequency);
-					}
+				const now = new Date();
+				let newTime = new Date(alarm.time);
+				while (newTime <= now) {
+					newTime = getNextAlarmTime(newTime, alarm.frequency);
+				}
 
-					const updatedAlarm = { ...alarm, time: newTime.toISOString() };
-					await deleteAlarmCore(alarm);
-					await createAlarmCore(updatedAlarm);
+				const updatedAlarm = { ...alarm, time: newTime.toISOString() };
+				await deleteAlarmCore(alarm);
+				await createAlarmCore(updatedAlarm);
 
-					const index = alarms.findIndex((a) => a.id === alarm.id);
-					if (index !== -1) {
-						alarms[index] = updatedAlarm;
-						await updateStorageAlarms(alarms);
-					}
+				const index = alarms.findIndex((a) => a.id === alarm.id);
+				if (index !== -1) {
+					alarms[index] = updatedAlarm;
+					await updateStorageAlarms(alarms);
 				}
 			}
 		}
@@ -283,32 +281,31 @@ async function handleAlarm(triggeredAlarm) {
 
 async function toggleURL(id) {
 	try {
+		console.log("Toggling");
 		const result = await getChromeStorageData(["alarms"]);
 		const alarms = result.alarms || [];
 		const alarm = alarms.find((a) => a.id === id);
 
 		if (alarm) {
+			// Toggle active state
 			alarm.isActive = !alarm.isActive;
-			await updateStorageAlarms(alarms);
 
+			// Update time if alarm is now active
 			if (alarm.isActive) {
+				console.log("Updating time from toggle");
 				const now = new Date();
 				let newTime = new Date(alarm.time);
-				while (newTime <= now) {
-					newTime = getNextAlarmTime(newTime, alarm.frequency);
+				if (newTime <= now) {
+					while (newTime <= now) {
+						newTime = getNextAlarmTime(newTime, alarm.frequency);
+					}
+					alarm.time = newTime.toISOString();
 				}
-
-				const updatedAlarm = { ...alarm, time: newTime.toISOString() };
-				await createAlarmCore(updatedAlarm);
-
-				const index = alarms.findIndex((a) => a.id === alarm.id);
-				if (index !== -1) {
-					alarms[index] = updatedAlarm;
-					await updateStorageAlarms(alarms);
-				}
-			} else {
-				await deleteAlarmCore(alarm);
 			}
+
+			await deleteAlarmCore(alarm);
+			await createAlarmCore(alarm);
+			await updateStorageAlarms(alarms);
 			refreshPopup();
 		}
 	} catch (error) {
@@ -316,7 +313,7 @@ async function toggleURL(id) {
 	}
 }
 
-async function updateURL(url) {
+async function updateNextAlarmTime(url) {
 	try {
 		const now = new Date();
 		const alarmTime = new Date(url.time);
