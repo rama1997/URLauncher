@@ -10,19 +10,19 @@ let isProcessing = false;
 // Chrome event listeners
 chrome.runtime.onInstalled.addListener(() => {
 	loadAlarmRecord().catch((error) => {
-		console.error("Error during installation:", error);
+		handleError("Error during installation:", error);
 	});
 });
 
 chrome.runtime.onStartup.addListener(() => {
 	checkAndReschedulePassedAlarms().catch((error) => {
-		console.error("Error during startup:", error);
+		handleError("Error during startup:", error);
 	});
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
 	enqueueOperation(() => handleAlarm(alarm)).catch((error) => {
-		console.error("Error in alarm listener:", error);
+		handleError("Error in alarm listener:", error);
 	});
 });
 
@@ -178,7 +178,7 @@ async function scheduleURL(url) {
 		await updateStorageAlarms(alarms);
 		refreshPopup();
 	} catch (error) {
-		console.error("Error creating alarm", error);
+		handleError("Error creating alarm", error);
 	}
 }
 
@@ -195,7 +195,7 @@ async function deleteURL(URLToBeDeleted) {
 
 		refreshPopup();
 	} catch (error) {
-		console.error("Error deleting alarm:", error);
+		handleError("Error deleting alarm:", error);
 	}
 }
 
@@ -214,7 +214,7 @@ async function editURL(updatedURL) {
 			throw new Error("Alarm not found for editing");
 		}
 	} catch (error) {
-		console.error("Error editing alarm:", error);
+		handleError("Error editing alarm:", error);
 	}
 }
 
@@ -242,7 +242,7 @@ async function handleAlarm(triggeredAlarm) {
 
 		refreshPopup();
 	} catch (error) {
-		console.error("Error handling alarm:", error);
+		handleError("Error handling alarm:", error);
 	}
 }
 
@@ -264,7 +264,7 @@ async function toggleURL(id) {
 			refreshPopup();
 		}
 	} catch (error) {
-		console.error("Error toggling alarm:", error);
+		handleError("Error toggling alarm:", error);
 	}
 }
 
@@ -292,7 +292,7 @@ async function updateNextAlarmTime(alarm) {
 
 		refreshPopup();
 	} catch (error) {
-		console.error("Error updating alarm:", error);
+		handleError("Error updating alarm:", error);
 	}
 }
 
@@ -308,8 +308,7 @@ async function checkAndReschedulePassedAlarms() {
 			}
 		}
 	} catch (error) {
-		console.error("Error checking and rescheduling alarms:", error);
-		throw error;
+		handleError("Error checking and rescheduling alarms:", error);
 	}
 }
 
@@ -319,8 +318,7 @@ async function loadAlarmRecord() {
 		state.alarms = result.alarms || [];
 		return state;
 	} catch (error) {
-		console.error("Error loading alarm record:", error);
-		throw error;
+		handleError("Error loading alarm record:", error);
 	}
 }
 
@@ -389,4 +387,8 @@ async function refreshPopup() {
 	} catch (error) {
 		return;
 	}
+}
+
+function handleError(message, error) {
+	//console.error(message, error);
 }
