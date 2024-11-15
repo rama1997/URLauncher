@@ -96,7 +96,6 @@ async function processQueue() {
 
 // Helper function to promisify chrome.alarms.clear
 function clearChromeAlarm(alarmId) {
-	console.log("Clearing alarm:", alarmId);
 	return new Promise((resolve, reject) => {
 		chrome.alarms.clear(alarmId, () => {
 			if (chrome.runtime.lastError) {
@@ -110,7 +109,6 @@ function clearChromeAlarm(alarmId) {
 
 // Helper function to promisify chrome.alarms.create
 function createChromeAlarm(alarmId, alarmInfo) {
-	console.log("Creating alarm:", alarmId);
 	return new Promise((resolve, reject) => {
 		chrome.alarms.create(alarmId, alarmInfo, () => {
 			if (chrome.runtime.lastError) {
@@ -164,7 +162,6 @@ async function deleteAlarmCore(url) {
 }
 
 async function scheduleURL(url) {
-	console.log("Create Alarm");
 	try {
 		await createAlarmCore(url);
 
@@ -186,7 +183,6 @@ async function scheduleURL(url) {
 }
 
 async function deleteURL(URLToBeDeleted) {
-	console.log("Delete Alarm");
 	try {
 		// Delete alarm from Chrome
 		await deleteAlarmCore(URLToBeDeleted);
@@ -223,7 +219,6 @@ async function editURL(updatedURL) {
 }
 
 async function handleAlarm(triggeredAlarm) {
-	console.log("Handle Alarm");
 	try {
 		const result = await getChromeStorageData(["alarms"]);
 		const alarms = result.alarms || [];
@@ -238,38 +233,10 @@ async function handleAlarm(triggeredAlarm) {
 					await deleteAlarmCore(alarm);
 					await updateStorageAlarms(updatedAlarms);
 				} else {
-					const now = new Date();
-					let newTime = new Date(alarm.time);
-					while (newTime <= now) {
-						newTime = getNextAlarmTime(newTime, alarm.frequency);
-					}
-
-					const updatedAlarm = { ...alarm, time: newTime.toISOString() };
-					await deleteAlarmCore(alarm);
-					await createAlarmCore(updatedAlarm);
-
-					const index = alarms.findIndex((a) => a.id === alarm.id);
-					if (index !== -1) {
-						alarms[index] = updatedAlarm;
-						await updateStorageAlarms(alarms);
-					}
+					updateNextAlarmTime(alarm);
 				}
 			} else {
-				const now = new Date();
-				let newTime = new Date(alarm.time);
-				while (newTime <= now) {
-					newTime = getNextAlarmTime(newTime, alarm.frequency);
-				}
-
-				const updatedAlarm = { ...alarm, time: newTime.toISOString() };
-				await deleteAlarmCore(alarm);
-				await createAlarmCore(updatedAlarm);
-
-				const index = alarms.findIndex((a) => a.id === alarm.id);
-				if (index !== -1) {
-					alarms[index] = updatedAlarm;
-					await updateStorageAlarms(alarms);
-				}
+				updateNextAlarmTime(alarm);
 			}
 		}
 
@@ -281,7 +248,6 @@ async function handleAlarm(triggeredAlarm) {
 
 async function toggleURL(id) {
 	try {
-		console.log("Toggling");
 		const result = await getChromeStorageData(["alarms"]);
 		const alarms = result.alarms || [];
 		const alarm = alarms.find((a) => a.id === id);
@@ -290,22 +256,11 @@ async function toggleURL(id) {
 			// Toggle active state
 			alarm.isActive = !alarm.isActive;
 
-			// Update time if alarm is now active
-			if (alarm.isActive) {
-				console.log("Updating time from toggle");
-				const now = new Date();
-				let newTime = new Date(alarm.time);
-				if (newTime <= now) {
-					while (newTime <= now) {
-						newTime = getNextAlarmTime(newTime, alarm.frequency);
-					}
-					alarm.time = newTime.toISOString();
-				}
-			}
-
+			// Update alarms
 			await deleteAlarmCore(alarm);
 			await createAlarmCore(alarm);
 			await updateStorageAlarms(alarms);
+
 			refreshPopup();
 		}
 	} catch (error) {
@@ -313,23 +268,23 @@ async function toggleURL(id) {
 	}
 }
 
-async function updateNextAlarmTime(url) {
+async function updateNextAlarmTime(alarm) {
 	try {
 		const now = new Date();
-		const alarmTime = new Date(url.time);
+		const alarmTime = new Date(alarm.time);
 
 		let newTime = new Date(alarmTime);
 		while (newTime <= now) {
-			newTime = getNextAlarmTime(newTime, url.frequency);
+			newTime = getNextAlarmTime(newTime, alarm.frequency);
 		}
 
-		const updatedURL = { ...url, time: newTime.toISOString() };
-		await deleteAlarmCore(url);
+		const updatedURL = { ...alarm, time: newTime.toISOString() };
+		await deleteAlarmCore(alarm);
 		await createAlarmCore(updatedURL);
 
 		const result = await getChromeStorageData(["alarms"]);
 		const alarms = result.alarms || [];
-		const index = alarms.findIndex((a) => a.id === url.id);
+		const index = alarms.findIndex((a) => a.id === alarm.id);
 		if (index !== -1) {
 			alarms[index] = updatedURL;
 			await updateStorageAlarms(alarms);
@@ -362,7 +317,6 @@ async function loadAlarmRecord() {
 	try {
 		const result = await getChromeStorageData(["alarms"]);
 		state.alarms = result.alarms || [];
-		console.log(state.alarms);
 		return state;
 	} catch (error) {
 		console.error("Error loading alarm record:", error);

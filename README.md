@@ -36,3 +36,4 @@ If you encounter any issues or have suggestions for improvements, please open an
 - Automatic close functionality
 - Export/import
 - Bulk URLs scheduling
+- Clear all scheduled URL button
