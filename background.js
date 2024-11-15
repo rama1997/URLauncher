@@ -94,7 +94,7 @@ async function processQueue() {
 	isProcessing = false;
 }
 
-// Helper function to promisify chrome.alarms.clear
+// Helper function for chrome.alarms.clear
 function clearChromeAlarm(alarmId) {
 	return new Promise((resolve, reject) => {
 		chrome.alarms.clear(alarmId, () => {
@@ -107,7 +107,7 @@ function clearChromeAlarm(alarmId) {
 	});
 }
 
-// Helper function to promisify chrome.alarms.create
+// Helper function for chrome.alarms.create
 function createChromeAlarm(alarmId, alarmInfo) {
 	return new Promise((resolve, reject) => {
 		chrome.alarms.create(alarmId, alarmInfo, () => {
@@ -120,10 +120,10 @@ function createChromeAlarm(alarmId, alarmInfo) {
 	});
 }
 
-// Helper function to promisify chrome.storage.local.get
+// Helper function for chrome.storage.local.sync
 function getChromeStorageData(key) {
 	return new Promise((resolve, reject) => {
-		chrome.storage.local.get(key, (result) => {
+		chrome.storage.sync.get(key, (result) => {
 			if (chrome.runtime.lastError) {
 				reject(chrome.runtime.lastError);
 			} else {
@@ -133,10 +133,10 @@ function getChromeStorageData(key) {
 	});
 }
 
-// Helper function to promisify chrome.storage.local.set
+// Helper function for chrome.storage.local.sync
 function setChromeStorageData(data) {
 	return new Promise((resolve, reject) => {
-		chrome.storage.local.set(data, () => {
+		chrome.storage.sync.set(data, () => {
 			if (chrome.runtime.lastError) {
 				reject(chrome.runtime.lastError);
 			} else {

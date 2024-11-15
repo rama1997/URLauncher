@@ -42,7 +42,7 @@ function setupSortDropdown() {
 	sortButton.addEventListener("click", UI.toggleDropdown);
 
 	// Retrieve and apply stored sort preference
-	chrome.storage.local.get(["sortBy", "sortOrder"], function (result) {
+	chrome.storage.sync.get(["sortBy", "sortOrder"], function (result) {
 		if (result.sortBy && result.sortOrder) {
 			currentSortBy = result.sortBy;
 			currentSortOrder = result.sortOrder;
@@ -59,7 +59,7 @@ function setupSortDropdown() {
 			currentSortOrder = event.target.getAttribute("data-order");
 
 			// Store the new sort preference
-			chrome.storage.local.set({
+			chrome.storage.sync.set({
 				sortBy: currentSortBy,
 				sortOrder: currentSortOrder,
 			});
