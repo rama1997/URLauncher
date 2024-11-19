@@ -9,14 +9,14 @@ let currentSortOrder = "asc";
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	if (request.action === "refreshPopup") {
-		loadState();
+		refreshState();
 		sendResponse({ success: true });
 	}
 });
 
 document.addEventListener("DOMContentLoaded", function () {
 	setupEventListeners();
-	loadState();
+	refreshState();
 
 	// Set initial active tab
 	document.getElementById("scheduleContent").classList.add("active");
@@ -93,19 +93,17 @@ function setupDarkMode() {
 	});
 }
 
-function loadState() {
-	chrome.runtime.sendMessage({ action: "getRecord" }, (response) => {
+function refreshState() {
+	chrome.runtime.sendMessage({ action: "getAlarms" }, (response) => {
 		if (chrome.runtime.lastError) {
 			UI.showAlert("Error loading data. Please try again.");
 			return;
 		}
-
 		if (response && typeof response === "object") {
-			state = response;
-			state.alarms = state.alarms || []; // Ensure alarms is always an array
+			state.alarms = response || []; // Ensure alarms is always an array
 		} else {
 			UI.showAlert("Invalid data. Please try again.");
-			state = { alarms: [] }; // Set a default state
+			state.alarms = []; // Set a default state
 		}
 		updatePopupDisplay();
 	});
@@ -141,7 +139,7 @@ function scheduleURL() {
 				urlInput.value = "";
 				timeInput.value = "";
 				frequencyInput.value = "once";
-				loadState();
+				refreshState();
 			} else {
 				UI.showAlert("Failed to schedule URL. Please try again.");
 			}
@@ -280,7 +278,7 @@ function saveEdit(event) {
 		chrome.runtime.sendMessage({ action: "editURL", alarm: updatedAlarm }, (response) => {
 			if (response && response.success) {
 				UI.showAlert("URL edited successfully!");
-				loadState();
+				refreshState();
 			} else {
 				UI.showAlert("Failed to edit URL. Please try again.");
 			}
@@ -304,7 +302,7 @@ function toggleAlarmState(event) {
 	const id = event.target.getAttribute("data-id");
 	chrome.runtime.sendMessage({ action: "toggleURL", id: id }, (response) => {
 		if (response && response.success) {
-			loadState();
+			refreshState();
 		} else {
 			UI.showAlert("Failed to toggle alarm state. Please try again.");
 		}
@@ -319,7 +317,7 @@ function deleteScheduledURL(event) {
 		chrome.runtime.sendMessage({ action: "deleteURL", alarm: alarmToDelete }, (response) => {
 			if (response && response.success) {
 				UI.showAlert("URL deleted successfully!");
-				loadState();
+				refreshState();
 			} else {
 				UI.showAlert("Failed to delete URL. Please try again.");
 			}

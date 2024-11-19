@@ -1,15 +1,16 @@
-// State management
-let state = {
-	alarms: [],
-};
-
 // Queue management
 let operationQueue = [];
 let isProcessing = false;
 
+// Synchronization interval (in milliseconds)
+const SYNC_INTERVAL = 10000; // 1 minute
+
+// Sync and recreate alarms periodically
+setInterval(syncAlarms, SYNC_INTERVAL);
+
 // Chrome event listeners
 chrome.runtime.onInstalled.addListener(() => {
-	loadAlarmRecord().catch((error) => {
+	syncAlarms().catch((error) => {
 		handleError("Error during installation:", error);
 	});
 });
@@ -29,10 +30,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	switch (request.action) {
-		case "getRecord":
-			loadAlarmRecord()
-				.then((state) => sendResponse(state))
-				.catch(() => sendResponse({ state }));
+		case "getAlarms":
+			getAlarms()
+				.then((alarms) => sendResponse(alarms))
+				.catch(() => sendResponse([]));
 			break;
 		case "scheduleURL":
 			scheduleURL(request.alarm)
@@ -120,7 +121,20 @@ function createChromeAlarm(alarmId, alarmInfo) {
 	});
 }
 
-// Helper function for chrome.storage.local.sync
+// Helper function to get all existing alarms with chrome.alarms.getAll
+function getAllLocalChromeAlarms() {
+	return new Promise((resolve, reject) => {
+		chrome.alarms.getAll((alarms) => {
+			if (chrome.runtime.lastError) {
+				reject(chrome.runtime.lastError);
+			} else {
+				resolve(alarms);
+			}
+		});
+	});
+}
+
+// Helper function for chrome.storage.local.sync.get
 function getChromeStorageData(key) {
 	return new Promise((resolve, reject) => {
 		chrome.storage.sync.get(key, (result) => {
@@ -133,7 +147,7 @@ function getChromeStorageData(key) {
 	});
 }
 
-// Helper function for chrome.storage.local.sync
+// Helper function for chrome.storage.local.sync.sety
 function setChromeStorageData(data) {
 	return new Promise((resolve, reject) => {
 		chrome.storage.sync.set(data, () => {
@@ -147,10 +161,6 @@ function setChromeStorageData(data) {
 }
 
 // Core operations
-async function updateStorageAlarms(alarms) {
-	await setChromeStorageData({ alarms });
-}
-
 async function createAlarmCore(url) {
 	await clearChromeAlarm(url.id);
 	const alarmTime = new Date(url.time).getTime();
@@ -161,12 +171,21 @@ async function deleteAlarmCore(url) {
 	await clearChromeAlarm(url.id);
 }
 
+async function updateAlarms(alarms) {
+	await setChromeStorageData({ alarms });
+}
+
+async function getAlarms() {
+	const result = await getChromeStorageData(["alarms"]);
+	const alarms = result.alarms || [];
+	return alarms;
+}
+
 async function scheduleURL(url) {
 	try {
 		await createAlarmCore(url);
 
-		const result = await getChromeStorageData(["alarms"]);
-		const alarms = result.alarms || [];
+		const alarms = await getAlarms();
 
 		const index = alarms.findIndex((a) => a.id === url.id);
 		if (index !== -1) {
@@ -175,7 +194,7 @@ async function scheduleURL(url) {
 			alarms.push(url);
 		}
 
-		await updateStorageAlarms(alarms);
+		await updateAlarms(alarms);
 		refreshPopup();
 	} catch (error) {
 		handleError("Error creating alarm", error);
@@ -188,10 +207,9 @@ async function deleteURL(URLToBeDeleted) {
 		await deleteAlarmCore(URLToBeDeleted);
 
 		// Delete alarm from storage
-		const result = await getChromeStorageData(["alarms"]);
-		const alarms = result.alarms || [];
+		const alarms = await getAlarms();
 		const updatedAlarms = alarms.filter((a) => a.id !== URLToBeDeleted.id);
-		await updateStorageAlarms(updatedAlarms);
+		await updateAlarms(updatedAlarms);
 
 		refreshPopup();
 	} catch (error) {
@@ -201,8 +219,7 @@ async function deleteURL(URLToBeDeleted) {
 
 async function editURL(updatedURL) {
 	try {
-		const result = await getChromeStorageData(["alarms"]);
-		const alarms = result.alarms || [];
+		const alarms = await getAlarms();
 
 		const index = alarms.findIndex((alarm) => alarm.id === updatedURL.id);
 		if (index !== -1) {
@@ -220,8 +237,7 @@ async function editURL(updatedURL) {
 
 async function handleAlarm(triggeredAlarm) {
 	try {
-		const result = await getChromeStorageData(["alarms"]);
-		const alarms = result.alarms || [];
+		const alarms = await getAlarms();
 		const alarm = alarms.find((a) => a.id === triggeredAlarm.name);
 
 		if (alarm) {
@@ -231,7 +247,7 @@ async function handleAlarm(triggeredAlarm) {
 				if (alarm.frequency === "once") {
 					const updatedAlarms = alarms.filter((a) => a.id !== alarm.id);
 					await deleteAlarmCore(alarm);
-					await updateStorageAlarms(updatedAlarms);
+					await updateAlarms(updatedAlarms);
 				} else {
 					updateNextAlarmTime(alarm);
 				}
@@ -248,18 +264,17 @@ async function handleAlarm(triggeredAlarm) {
 
 async function toggleURL(id) {
 	try {
-		const result = await getChromeStorageData(["alarms"]);
-		const alarms = result.alarms || [];
+		const alarms = await getAlarms();
 		const alarm = alarms.find((a) => a.id === id);
 
 		if (alarm) {
-			// Toggle active state
+			// Toggle active
 			alarm.isActive = !alarm.isActive;
 
 			// Update alarms
 			await deleteAlarmCore(alarm);
 			await createAlarmCore(alarm);
-			await updateStorageAlarms(alarms);
+			await updateAlarms(alarms);
 
 			refreshPopup();
 		}
@@ -282,12 +297,11 @@ async function updateNextAlarmTime(alarm) {
 		await deleteAlarmCore(alarm);
 		await createAlarmCore(updatedURL);
 
-		const result = await getChromeStorageData(["alarms"]);
-		const alarms = result.alarms || [];
+		const alarms = await getAlarms();
 		const index = alarms.findIndex((a) => a.id === alarm.id);
 		if (index !== -1) {
 			alarms[index] = updatedURL;
-			await updateStorageAlarms(alarms);
+			await updateAlarms(alarms);
 		}
 
 		refreshPopup();
@@ -299,12 +313,11 @@ async function updateNextAlarmTime(alarm) {
 // Reschedule alarms that have passed
 async function checkAndReschedulePassedAlarms() {
 	try {
-		const result = await getChromeStorageData(["alarms"]);
-		const alarms = result.alarms || [];
+		const alarms = await getAlarms();
 
 		for (const alarm of alarms) {
 			if (isScheduledTimePassed(alarm.time)) {
-				await enqueueOperation(() => handleAlarm({ name: alarm.id }));
+				await enqueueOperation(() => handleAlarm({ alarm }));
 			}
 		}
 	} catch (error) {
@@ -312,13 +325,40 @@ async function checkAndReschedulePassedAlarms() {
 	}
 }
 
-async function loadAlarmRecord() {
+async function syncAlarms() {
+	console.log("Syncing");
 	try {
-		const result = await getChromeStorageData(["alarms"]);
-		state.alarms = result.alarms || [];
-		return state;
+		const globalAlarms = await getAlarms();
+		console.log("Global: ", globalAlarms);
+
+		// Get all existing alarms in the current local browser
+		const localAlarms = await getAllLocalChromeAlarms();
+
+		console.log("Local: ", localAlarms);
+
+		// Map local alarms for quick lookup
+		const localAlarmMap = new Map(localAlarms.map((a) => [a.name, a]));
+
+		// Recreate alarms that are missing locally or is outdated
+		for (const globalAlarm of globalAlarms) {
+			const localAlarm = localAlarmMap.get(globalAlarm.id);
+
+			if (!localAlarm || isLocalAlarmOutdated(localAlarm, globalAlarm)) {
+				if (localAlarm) {
+					await deleteAlarmCore(localAlarm);
+				}
+				await createAlarmCore(globalAlarm);
+			}
+		}
+
+		// Cleanup extra local alarms that don't exist in sync storage
+		for (const alarm of localAlarms) {
+			if (!globalAlarms.some((a) => a.id === alarm.name)) {
+				await deleteAlarmCore(alarm);
+			}
+		}
 	} catch (error) {
-		handleError("Error loading alarm record:", error);
+		handleError("Error syncing alarm record:", error);
 	}
 }
 
@@ -326,6 +366,14 @@ function isScheduledTimePassed(scheduledTime) {
 	const now = new Date();
 	const scheduled = new Date(scheduledTime);
 	return scheduled <= now;
+}
+
+function isLocalAlarmOutdated(localAlarm, globalAlarm) {
+	const localTime = localAlarm.scheduledTime;
+	const globalTime = new Date(globalAlarm.time).getTime();
+
+	// Check if times differ.
+	return localTime !== globalTime;
 }
 
 function getNextAlarmTime(currentTime, frequency) {
